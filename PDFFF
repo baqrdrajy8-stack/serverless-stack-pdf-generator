@@ -1,0 +1,88 @@
+import os
+import asyncio
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
+from fpdf import FPDF
+from arabic_reshaper import reshape
+from bidi.algorithm import get_display
+
+# --- الإعدادات ---
+TOKEN = '8481065509:AAF_2YyqhIALwkR_pEOdHcMhkshbzB-1FKY'
+CHANNEL_USERNAME = '@iiiioiioii'
+ADMIN_ID = 1037683442 # ضع آيدي حسابك هنا
+
+user_file_names = {}
+
+class PDF(FPDF):
+    def header(self):
+        self.add_font('AmiriFont', '', 'Amiri.ttf', uni=True)
+        self.set_font('AmiriFont', size=10)
+        header_text = get_display(reshape("المصمم (باقر ال عبد الواحد) - @bQR_9"))
+        self.cell(0, 10, header_text, align='R')
+        self.ln(10)
+        self.line(10, 20, 200, 20)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Page {self.page_no()}', align='C')
+
+async def check_subscription(user_id, context):
+    if user_id == ADMIN_ID: return True
+    try:
+        member = await context.bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except: return False
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not await check_subscription(user_id, context):
+        keyboard = [[InlineKeyboardButton("اشترك في القناة ✓", url="https://t.me/iiiioiioii")]]
+        await update.message.reply_text("⚠️ يجب الاشتراك بالقناة أولاً!", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+    user_file_names.pop(user_id, None)
+    await update.message.reply_text("أهلاً بك في بوت المصمم باقر!\nأرسل اسم ملف الـ PDF:")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    user_text = update.message.text
+    if not await check_subscription(user_id, context): return
+
+    if user_id not in user_file_names:
+        user_file_names[user_id] = user_text
+        await update.message.reply_text(f"✅ اسم الملف: {user_text}\nأرسل النص الآن:")
+        return
+
+    temp_file = f"result_{user_id}.pdf"
+    await context.bot.send_chat_action(chat_id=user_id, action="upload_document")
+
+    try:
+        pdf = PDF()
+        pdf.add_font('AmiriFont', '', 'Amiri.ttf', uni=True)
+        pdf.add_page()
+        pdf.set_font('AmiriFont', size=16)
+        
+        txt = get_display(reshape(user_text))
+        pdf.multi_cell(190, 10, txt=txt, align='R')
+        pdf.output(temp_file)
+
+        keyboard = [[InlineKeyboardButton("المصمم باقر 👨‍💻", url="https://t.me/bQR_9")],
+                    [InlineKeyboardButton("قناة البوت ✓", url="https://t.me/iiiioiioii")]]
+
+        with open(temp_file, 'rb') as f:
+            await update.message.reply_document(
+                document=f, filename=f"{user_file_names[user_id]}.pdf",
+                caption="تم التصميم بواسطة باقر ال عبد الواحد @bQR_9",
+                reply_markup=InlineKeyboardMarkup(keyboard))
+        
+        os.remove(temp_file)
+        user_file_names.pop(user_id, None)
+    except Exception as e:
+        await update.message.reply_text(f"خطأ: {e}")
+
+if __name__ == '__main__':
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
